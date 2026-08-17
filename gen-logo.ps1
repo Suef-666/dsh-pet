@@ -68,13 +68,6 @@ $g.FillEllipse($bSpout, 168, 150, 26, 26)
 $g.FillEllipse($bSpout, 214, 128, 24, 24)
 $g.FillEllipse($bSpout, 250, 142, 20, 20)
 
-# wordmark "dsh"
-$font = New-Object System.Drawing.Font("Segoe UI", 52, [System.Drawing.FontStyle]::Bold)
-$sf = New-Object System.Drawing.StringFormat
-$sf.Alignment = [System.Drawing.StringAlignment]::Center
-$sf.LineAlignment = [System.Drawing.StringAlignment]::Center
-$g.DrawString("dsh", $font, [System.Drawing.Brushes]::White, (New-Object System.Drawing.RectangleF(0, 408, $size, 56)), $sf)
-
 $g.Dispose()
 
 # downscale 512 -> 256 (supersampled, keeps edges crisp)
