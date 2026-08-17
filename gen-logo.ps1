@@ -76,6 +76,15 @@ $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
 $g.DrawString("dsh", $font, [System.Drawing.Brushes]::White, (New-Object System.Drawing.RectangleF(0, 408, $size, 56)), $sf)
 
 $g.Dispose()
-$bmp.Save((Join-Path $PSScriptRoot "logo.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+
+# downscale 512 -> 256 (supersampled, keeps edges crisp)
+$out = New-Object System.Drawing.Bitmap(256, 256)
+$g2 = [System.Drawing.Graphics]::FromImage($out)
+$g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g2.Clear([System.Drawing.Color]::Transparent)
+$g2.DrawImage($bmp, 0, 0, 256, 256)
+$g2.Dispose()
+$out.Save((Join-Path $PSScriptRoot "logo.png"), [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
-Write-Host ("logo.png written (512x512): " + (Get-Item (Join-Path $PSScriptRoot "logo.png")).Length + " bytes")
+$out.Dispose()
+Write-Host ("logo.png written (256x256): " + (Get-Item (Join-Path $PSScriptRoot "logo.png")).Length + " bytes")
