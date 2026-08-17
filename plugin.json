@@ -1,0 +1,20 @@
+{
+  "pluginName": "dsh 桌宠",
+  "author": "dsh-pet",
+  "description": "dsh 桌面宠物：单一圆角矩形状态面板实时展示任务状态（干活/回复中/等你/完成/出错），需要你处理时桌宠动画+音效提醒；直连 dsh-tab-alert 事件流，可拖拽、可置顶（挂件形态参考 uTools「挂件」插件）",
+  "version": "0.0.16",
+  "logo": "logo.png",
+  "preload": "preload.js",
+  "main": "index.html",
+  "platform": ["win32"],
+  "pluginSetting": {
+    "height": 720
+  },
+  "features": [
+    {
+      "code": "dsh-pet",
+      "explain": "dsh 桌宠",
+      "cmds": ["dsh桌宠", "dsh pet", "桌宠"]
+    }
+  ]
+}

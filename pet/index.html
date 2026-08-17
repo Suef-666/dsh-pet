@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>dsh-pet</title>
+<style>
+  * { margin: 0; padding: 0; user-select: none; -webkit-user-select: none; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: transparent; overflow: hidden; }
+  body { position: relative; display: flex; flex-direction: column; }
+
+  /* ── 单一圆角矩形状态面板（紧贴桌宠上方 10px；无任务时隐藏）───────── */
+  #panel {
+    position: absolute; left: 6px; right: 6px; bottom: 170px; /* 桌宠区高 160px → 面板底边距桌宠顶边 10px */
+    display: none;
+    background: rgba(18, 20, 26, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 8px 10px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  }
+  #panel.show { display: block; animation: cardIn .18s ease; }
+  @keyframes cardIn { from { transform: translateY(-6px); opacity: 0; } to { transform: none; opacity: 1; } }
+  #panel .head { display: flex; align-items: center; gap: 6px; }
+  #panel .title {
+    font: 600 13px/1.4 system-ui, "Microsoft YaHei", sans-serif; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  }
+  .badge {
+    flex: 0 0 auto; font: 600 11px/1 system-ui, "Microsoft YaHei", sans-serif;
+    padding: 3px 7px; border-radius: 999px; color: #fff; white-space: nowrap;
+  }
+  .b-thinking { background: #8b5cf6; }   /* 思考 */
+  .b-working { background: #6b7280; }    /* 干活（灰色） */
+  .b-streaming { background: #06b6d4; }  /* 回复中 */
+  .b-waiting { background: #f59e0b; }    /* 提问/等你（橙） */
+  .b-done { background: #10b981; }       /* 完成（绿） */
+  .b-error { background: #ef4444; }      /* 出错（红） */
+  .b-idle { background: #6b7280; }       /* 待命 */
+  #panel .content {
+    margin-top: 3px;
+    max-height: 36px; /* 最多 2 行；面板高度与行数匹配（2 行） */
+    font: 12px/1.5 system-ui, "Microsoft YaHei", sans-serif; color: rgba(255, 255, 255, 0.9);
+    overflow: hidden; word-break: break-all; white-space: pre-wrap;
+  }
+
+  /* ── 桌宠（底部） ─────────────────────────────────────────────────── */
+  #pet {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 160px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 88px; cursor: grab; filter: drop-shadow(0 4px 8px rgba(0,0,0,.25));
+    transform-origin: 50% 80%;
+  }
+  #pet.dragging { cursor: grabbing; }
+  #pet.bounce { animation: bounce .5s ease; }
+  @keyframes bounce {
+    0% { transform: scale(1); } 30% { transform: scale(1.25) translateY(-12px); }
+    60% { transform: scale(.95); } 100% { transform: scale(1); }
+  }
+  #conn {
+    position: absolute; left: 52px; bottom: 30px; width: 9px; height: 9px;
+    border-radius: 50%; background: #6b7280; border: 1px solid rgba(255,255,255,.6);
+  }
+  #conn.ok { background: #34d399; }
+  #conn.bad { background: #ef4444; }
+  /* 版本徽标：用于确认桌宠窗口加载的是最新代码（不需要可删） */
+  #ver {
+    position: absolute; right: 4px; bottom: 2px;
+    font: 9px/1 system-ui, "Microsoft YaHei", sans-serif;
+    color: rgba(255, 255, 255, 0.35); pointer-events: none; user-select: none;
+  }
+
+  /* ── 右键菜单 ─────────────────────────────────────────────────────── */
+  #menu {
+    position: absolute; min-width: 130px; background: #fff; border: 1px solid #e2e5ea;
+    border-radius: 8px; box-shadow: 0 6px 16px rgba(0,0,0,.2); display: none; z-index: 9; overflow: hidden;
+  }
+  #menu.show { display: block; }
+  #menu .item { padding: 7px 12px; font: 13px system-ui, "Microsoft YaHei", sans-serif; cursor: pointer; }
+  #menu .item:hover { background: #f0f3f7; }
+</style>
+</head>
+<body>
+  <!-- 单一圆角矩形状态面板（无任务时隐藏；状态变化只在面板内更新） -->
+  <div id="panel">
+    <div class="head"><span class="title"></span><span class="badge"></span></div>
+    <div class="content"></div>
+  </div>
+  <div id="pet">🐳<span id="conn"></span></div>
+  <div id="ver"></div>
+  <div id="menu">
+    <div class="item" data-act="top">📌 切换置顶</div>
+    <div class="item" data-act="sound">🔊 测试音效</div>
+    <div class="item" data-act="close">✖ 关闭</div>
+  </div>
+
+<script>
+// 版本标记：与主面板的 dsh-pet.expectedPetVersion 对照，不一致自动重载
+// （uTools 桌宠窗口加载的是创建时的代码，改代码后靠这个机制自刷新）
+const PET_VERSION = "0.0.16";
+document.getElementById("ver").textContent = "v" + PET_VERSION;
+let reloadedOnce = false;
+setInterval(() => {
+  const expected = localStorage.getItem("dsh-pet.expectedPetVersion");
+  if (expected && expected !== PET_VERSION && !reloadedOnce) {
+    reloadedOnce = true;
+    location.reload();
+  }
+}, 3000);
+
+// ── 设置（与主窗口同源共享 localStorage）──────────────────────────────
+const SETTINGS_KEY = "dsh-pet.settings";
+const defaults = {
+  sound: true,       // 注意力事件音效（等你/完成/出错）
+  volume: 60,
+  url: "http://127.0.0.1:3081",
+  liveBox: true,     // 圆角矩形实时消息框（流式文本实时滚动 + 状态提示）
+  bounce: true,      // 注意力事件桌宠跳动
+};
+const settings = () => ({ ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") });
+
+// ── 音效（WebAudio 蜂鸣）─────────────────────────────────────────────
+let audioCtx = null;
+function beep() {
+  const s = settings();
+  if (!s.sound) return;
+  try {
+    audioCtx = audioCtx || new AudioContext();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.18);
+    gain.gain.setValueAtTime((s.volume / 100) * 0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.28);
+  } catch (e) { /* 忽略 */ }
+}
+
+// ── 单一圆角矩形状态面板（可关闭）+ 注意力提醒（音效/跳动可关闭）──────
+const pet = document.getElementById("pet");
+const panel = document.getElementById("panel");
+const panelTitle = panel.querySelector(".title");
+const panelBadge = panel.querySelector(".badge");
+const panelContent = panel.querySelector(".content");
+const conn = document.getElementById("conn");
+let panelTimer = null;   // done/error 自动收起
+let dotsTimer = null;    // “处理中 …”点点动画
+let dots = 0;
+let lastBounceAt = 0;    // 防抖：3 秒内不重复打扰
+
+/** 更新面板（同一元素原地变化，绝不新建面板）。keepMs>0 = 到时自动收起。 */
+function setPanel(title, badgeText, badgeCls, contentText, keepMs) {
+  panelTitle.textContent = title || "";
+  panelBadge.textContent = badgeText || "";
+  panelBadge.className = "badge " + (badgeCls || "b-idle");
+  panelContent.textContent = contentText || "";
+  panel.classList.add("show");
+  clearTimeout(panelTimer);
+  if (keepMs) panelTimer = setTimeout(() => panel.classList.remove("show"), keepMs);
+}
+
+function hidePanel() {
+  clearTimeout(panelTimer);
+  stopDots();
+  panel.classList.remove("show");
+}
+
+/** “处理中 . / .. / ... ” 每秒循环（仅进行中状态）。 */
+function startDots() {
+  if (dotsTimer) return;
+  dots = 0;
+  const tick = () => {
+    dots = (dots % 3) + 1; // 1 → 2 → 3 循环
+    panelContent.textContent = "处理中" + ".".repeat(dots);
+  };
+  tick();
+  dotsTimer = setInterval(tick, 1000);
+}
+function stopDots() {
+  if (dotsTimer) { clearInterval(dotsTimer); dotsTimer = null; }
+}
+
+/** 注意力事件（等你/完成/出错）：音效 + 桌宠跳动（均可独立关闭）。 */
+function attention(status) {
+  const s = settings();
+  const now = Date.now();
+  if (now - lastBounceAt < 3000) return; // 防抖：3 秒内不重复打扰
+  lastBounceAt = now;
+  if (s.bounce) {
+    pet.classList.remove("bounce");
+    void pet.offsetWidth;
+    pet.classList.add("bounce");
+  }
+  if (s.sound) beep();
+}
+
+// ── 状态徽标与文案 ──────────────────────────────────────────────────
+const STATUS_META = {
+  thinking:  { cls: "b-thinking",  text: "思考" },
+  working:   { cls: "b-working",   text: "干活" },
+  streaming: { cls: "b-streaming", text: "回复中" },
+  waiting:   { cls: "b-waiting",   text: "等你" },
+  done:      { cls: "b-done",      text: "完成" },
+  error:     { cls: "b-error",     text: "出错" },
+  idle:      { cls: "b-idle",      text: "待命" },
+};
+const PENDING_TEXT = { approval: "授权", question: "提问", "plan-review": "审查" };
+const ATTENTION_TEXT = { waiting: "等你", done: "完成", error: "出错" };
+
+// ── 单一面板渲染：所有状态变化都在同一个圆角矩形面板内原地更新 ────────
+const lastStatus = new Map(); // id -> status（注意力触发检测）
+
+function renderPanel(sessions) {
+  const list = Array.isArray(sessions) ? sessions : [];
+  // 状态切换 → 仅「等你/完成/出错」触发音效+跳动（过程状态不打扰）
+  for (const s of list) {
+    const prev = lastStatus.get(s.id);
+    if (prev && prev !== s.status && ATTENTION_TEXT[s.status]) attention(s.status);
+    lastStatus.set(s.id, s.status);
+  }
+  for (const [id] of [...lastStatus]) {
+    if (!list.some((x) => x.id === id)) lastStatus.delete(id);
+  }
+
+  if (!settings().liveBox) { hidePanel(); return; } // 实时消息框整体关闭
+
+  // 选一条最值得展示的会话：等你 > 出错 > 回复中 > 干活 > 思考 > 完成
+  const waitS = list.find((x) => x.status === "waiting");
+  const errS = list.find((x) => x.status === "error");
+  const strS = list.find((x) => x.status === "streaming");
+  const workS = list.find((x) => x.status === "working");
+  const thinkS = list.find((x) => x.status === "thinking");
+  const doneS = list.find((x) => x.status === "done");
+  const cur = waitS || errS || strS || workS || thinkS || doneS;
+  if (!cur) { hidePanel(); return; } // 无任务 → 不显示面板
+
+  const title = cur.title && cur.title !== cur.id ? cur.title : cur.id;
+  switch (cur.status) {
+    case "waiting":
+      stopDots();
+      setPanel(title, PENDING_TEXT[cur.pending] || "提问", "b-waiting", "等你操作", 0); // 常驻等待用户
+      break;
+    case "error":
+      stopDots();
+      setPanel(title, "出错", "b-error", "任务出错", 6000);
+      break;
+    case "done":
+      stopDots();
+      setPanel(title, "完成", "b-done", "任务完成", 6000);
+      break;
+    case "streaming":
+      stopDots();
+      setPanel(title, "回复中", "b-streaming", cur.content ? cur.content.slice(-120) : "处理中", 0);
+      break;
+    default: // thinking / working
+      setPanel(title, STATUS_META[cur.status].text, STATUS_META[cur.status].cls, "处理中", 0);
+      startDots(); // 立即以「处理中.」起步，每秒循环
+      break;
+  }
+}
+
+// ── WebSocket：直连 dsh 宿主插件事件流（自包含，无需主面板/iframe）─────
+let ws = null;
+let reconnectTimer = null;
+
+function connectWs() {
+  const s = settings();
+  const url = s.url.replace(/^http/, "ws") + "/tab-alert/stream";
+  conn.className = "";
+  try { ws = new WebSocket(url); } catch (e) { scheduleReconnect(); return; }
+  ws.onopen = () => { conn.className = "ok"; };
+  ws.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+    if (data && Array.isArray(data.sessions)) renderPanel(data.sessions);
+  };
+  ws.onclose = () => { conn.className = "bad"; scheduleReconnect(); };
+  ws.onerror = () => { try { ws.close(); } catch {} };
+}
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWs(); }, 3000);
+}
+
+// ── 拖拽移动（整窗）──────────────────────────────────────────────────
+// 方案：锚点式 + 自校准换算（见主进程 preload.js 的 dragStart/dragMove）。
+//   - 渲染端只上报“按下点 / 当前光标屏幕坐标 + clientX/Y”，不做任何换算；
+//   - 主进程在 mousedown 锚定 (P0, S0)，拖拽中窗口位置 = P0 + (光标屏幕移动)×k，
+//     纯函数、绝不回读窗口位置 → 无累积漂移（修复“稳定下沉”）；
+//   - k 先由 getSize/innerWidth 估算，再用“窗口位置在两种坐标系下的增量之比”
+//     自校准（即使 getSize 与 setPosition 坐标系不一致也能纠正，跨屏自动跟随）；
+//   - 只上报光标真正移动的事件（合成事件光标不变 → 不上报），反馈环自终止。
+// 只有确认开始拖（越过 3px 阈值）后才真正移动；不节流——每个 mousemove 直接上报，
+// 主进程用“最新优先”合并，窗口永远追最新光标位置（拖尾 ≈ 管线延迟，最小化）。
+let dragging = false, dragArmed = false;
+let grabCX = 0, grabCY = 0;
+let lastSentSX = 0, lastSentSY = 0;
+
+function cancelDrag() {
+  dragging = false;
+  dragArmed = false;
+  pet.classList.remove("dragging");
+  if (window.petDragEnd) window.petDragEnd();
+}
+
+window.addEventListener("mousedown", (e) => {
+  if (e.button !== 0) return;
+  dragArmed = true; // 先武装，移动超过阈值才真正拖（防误抓）
+  grabCX = e.clientX;
+  grabCY = e.clientY;
+  lastSentSX = e.screenX;
+  lastSentSY = e.screenY;
+  pet.classList.add("dragging");
+  if (window.petDragStart) window.petDragStart({
+    sx: e.screenX, sy: e.screenY,
+    cx: e.clientX, cy: e.clientY,
+    cw: window.innerWidth, ch: window.innerHeight,
+  });
+});
+
+window.addEventListener("mousemove", (e) => {
+  if (!dragArmed) return;
+  if (!dragging) {
+    // 3px 阈值（clientX 相对抓取点的偏移）：确认是拖动而不是点击
+    if (Math.abs(e.clientX - grabCX) + Math.abs(e.clientY - grabCY) < 3) return;
+    dragging = true;
+  }
+  // 只上报光标真正移动的事件（合成事件 screenX/Y 不变 → 不上报，避免干扰锚点）
+  if (e.screenX === lastSentSX && e.screenY === lastSentSY) return;
+  lastSentSX = e.screenX;
+  lastSentSY = e.screenY;
+  if (window.petDragMove) window.petDragMove({ sx: e.screenX, sy: e.screenY, cx: e.clientX, cy: e.clientY });
+});
+
+window.addEventListener("mouseup", cancelDrag);
+// 拖动中光标可能短暂移出窗口边界（窗口在跟随鼠标），此时不能取消拖拽；
+// mouseleave 仅在“尚未确认拖动”时取消（防误触），已拖上则等 mouseup/blur
+window.addEventListener("mouseleave", () => { if (!dragging) cancelDrag(); });
+window.addEventListener("blur", cancelDrag);          // 窗口失焦
+document.addEventListener("visibilitychange", () => { if (document.hidden) cancelDrag(); });
+
+// ── 右键菜单 ────────────────────────────────────────────────────────
+const menu = document.getElementById("menu");
+window.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  menu.style.left = e.clientX + "px";
+  menu.style.top = e.clientY + "px";
+  menu.classList.add("show");
+});
+window.addEventListener("click", () => menu.classList.remove("show"));
+menu.addEventListener("click", (e) => {
+  const act = e.target.dataset.act;
+  menu.classList.remove("show");
+  if (act === "close") window.petClose();
+  else if (act === "sound") beep();
+  else if (act === "top") window.petAlwaysOnTop();
+});
+
+connectWs();
+</script>
+</body>
+</html>

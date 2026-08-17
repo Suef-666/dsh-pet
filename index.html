@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>dsh 桌宠</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #222; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 10px 14px; background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; gap: 10px; }
+  header h1 { font-size: 15px; }
+  header .status { font-size: 12px; color: #888; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #btnGear { border: 0; background: none; font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 6px; color: #666; }
+  #btnGear:hover { background: #f0f3f7; }
+
+  /* ── 设置卡片 ── */
+  #settings { background: #fff; border-bottom: 1px solid #e5e7eb; padding: 10px 14px 12px; display: none; font-size: 13px; }
+  #settings.open { display: block; }
+  #settings .row { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+  #settings .row label { color: #555; flex: 0 0 auto; }
+  #settings input[type=text] { flex: 1; padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  #settings .group { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 9px; }
+  #settings .group:last-child { margin-bottom: 0; }
+  #settings .gname { color: #9ca3af; font-size: 12px; margin-right: 2px; }
+  #settings .vol { display: inline-flex; align-items: center; gap: 6px; color: #555; }
+  #settings input[type=range] { width: 90px; accent-color: #2f6fed; }
+  #btnCreate { padding: 6px 18px; border: 0; border-radius: 6px; background: #2f6fed; color: #fff; cursor: pointer; font-size: 13px; }
+  #btnCreate:hover { background: #2563eb; }
+
+  /* ── 开关 ── */
+  .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; color: #444; user-select: none; }
+  .switch input { display: none; }
+  .switch .knob { width: 30px; height: 17px; border-radius: 999px; background: #d1d5db; position: relative; transition: background .15s; flex: 0 0 auto; }
+  .switch .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch input:checked + .knob { background: #2f6fed; }
+  .switch input:checked + .knob::after { left: 15px; }
+
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #dshFrame { flex: 1; border: 0; width: 100%; }
+  .tip { font-size: 12px; color: #888; padding: 4px 14px; background: #fbfbfc; border-top: 1px solid #eee; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🐳 dsh 桌宠</h1>
+  <span class="status" id="status">桌宠窗口直连 dsh 宿主事件流（WebSocket），不依赖本页面</span>
+  <button id="btnGear" title="设置">⚙</button>
+</header>
+
+<div id="settings">
+  <div class="row">
+    <label>dsh 地址</label>
+    <input type="text" id="url" />
+  </div>
+  <div class="group">
+    <span class="gname">通知</span>
+    <label class="switch"><input type="checkbox" id="liveBox" /><span class="knob"></span><span>实时消息框</span></label>
+    <label class="switch"><input type="checkbox" id="sound" /><span class="knob"></span><span>音效</span></label>
+    <label class="switch"><input type="checkbox" id="bounce" /><span class="knob"></span><span>桌宠跳动</span></label>
+    <span class="vol">音量 <input type="range" id="volume" min="0" max="100" value="60" /></span>
+  </div>
+  <div class="group">
+    <span class="gname">窗口</span>
+    <label class="switch"><input type="checkbox" id="top" /><span class="knob"></span><span>置顶</span></label>
+    <label class="switch"><input type="checkbox" id="auto" /><span class="knob"></span><span>启动自动建宠</span></label>
+    <button id="btnCreate">创建桌宠</button>
+  </div>
+</div>
+
+<main>
+  <iframe id="dshFrame" src="http://127.0.0.1:3081"></iframe>
+</main>
+<div class="tip">💡 本页面 = dsh 界面（可选套壳）。桌宠是独立悬浮窗，直接连 ws://127.0.0.1:3081/tab-alert/stream，关掉本页面也不影响。</div>
+
+<script>
+// ── 设置（localStorage 与桌宠窗口同源共享）─────────────────────────────
+const $ = (id) => document.getElementById(id);
+const SETTINGS_KEY = "dsh-pet.settings";
+const defaults = { url: "http://127.0.0.1:3081", sound: true, volume: 60, liveBox: true, bounce: true, top: true, auto: true };
+let settings = { ...defaults, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}") };
+const save = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+const apply = () => {
+  $("url").value = settings.url;
+  $("sound").checked = settings.sound;
+  $("volume").value = settings.volume;
+  $("liveBox").checked = settings.liveBox;
+  $("bounce").checked = settings.bounce;
+  $("top").checked = settings.top;
+  $("auto").checked = settings.auto;
+  $("dshFrame").src = settings.url;
+};
+$("url").addEventListener("change", (e) => { settings.url = e.target.value.trim() || defaults.url; save(); apply(); });
+$("sound").addEventListener("change", (e) => { settings.sound = e.target.checked; save(); });
+$("volume").addEventListener("input", (e) => { settings.volume = +e.target.value; save(); });
+$("liveBox").addEventListener("change", (e) => { settings.liveBox = e.target.checked; save(); });
+$("bounce").addEventListener("change", (e) => { settings.bounce = e.target.checked; save(); });
+$("top").addEventListener("change", (e) => { settings.top = e.target.checked; save(); });
+$("auto").addEventListener("change", (e) => { settings.auto = e.target.checked; save(); });
+apply();
+
+// ── 设置卡片折叠（记忆开关状态）───────────────────────────────────────
+let ui = JSON.parse(localStorage.getItem("dsh-pet.ui") || "{}");
+$("settings").classList.toggle("open", ui.settingsOpen !== false);
+$("btnGear").addEventListener("click", () => {
+  const open = $("settings").classList.toggle("open");
+  ui.settingsOpen = open;
+  localStorage.setItem("dsh-pet.ui", JSON.stringify(ui));
+});
+
+// ── 桌宠版本标记：主面板每次加载写入期望版本，桌宠据此自动重载新代码 ──
+const PET_VERSION = "0.0.16";
+localStorage.setItem("dsh-pet.expectedPetVersion", PET_VERSION);
+
+// ── 创建桌宠（独立悬浮窗，自包含；先关旧窗保证跑最新代码）─────────────
+let creating = false;
+async function createPet() {
+  if (creating) return;
+  creating = true;
+  try {
+    if (window.closeAllPets) window.closeAllPets(); // 旧窗口可能是旧代码，先销毁
+    await window.createPetWin({
+      url: "./pet/",
+      width: 220,
+      height: 480,
+      x: 300,
+      y: 300,
+      alwaysOnTop: settings.top,
+    });
+    $("status").textContent = "桌宠已创建（独立悬浮窗，直连 WS，右键可置顶/关闭）";
+  } finally {
+    creating = false;
+  }
+}
+$("btnCreate").addEventListener("click", createPet);
+
+// ── 启动插件即自动分离独立窗口（默认开，可在设置里关）─────────────────
+if (settings.auto) createPet();
+</script>
+</body>
+</html>
