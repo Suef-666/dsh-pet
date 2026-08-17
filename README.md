@@ -1,5 +1,7 @@
 # dsh-pet —— uTools 桌面宠物（dsh 状态桌宠）
 
+> 🚀 基于 [uTools 官方网址](https://www.u-tools.cn/)（[uTools 开发者文档](https://www.u-tools.cn/docs/developer/)）的插件机制开发，挂件形态参考 uTools「挂件」插件。
+
 uTools 桌面宠物：直连 **dsh-tab-alert 宿主插件**的 WebSocket 事件流
 （`ws://127.0.0.1:<port>/tab-alert/stream`），以**单一圆角矩形状态面板**
 实时展示当前任务状态；需要你处理/完成/出错时桌宠动画 + 音效提醒。
